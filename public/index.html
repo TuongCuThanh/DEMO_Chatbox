@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AutoShop - AI Chat</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #eef2f7; height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .chat { width: 420px; max-width: 100%; height: 640px; max-height: 100vh; background: #fff; border-radius: 16px; box-shadow: 0 10px 40px rgba(0,0,0,.12); display: flex; flex-direction: column; overflow: hidden; }
+    header { background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; padding: 16px; }
+    header h1 { margin: 0; font-size: 18px; }
+    header p { margin: 4px 0 0; font-size: 12px; opacity: .85; }
+    #messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height: 1.45; font-size: 14px; white-space: pre-wrap; word-wrap: break-word; }
+    .user { align-self: flex-end; background: #2563eb; color: #fff; border-bottom-right-radius: 4px; }
+    .bot { align-self: flex-start; background: #f1f5f9; color: #0f172a; border-bottom-left-radius: 4px; }
+    .tools { align-self: flex-start; font-size: 11px; color: #64748b; margin-top: -6px; }
+    .typing { color: #64748b; font-style: italic; }
+    .suggest { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 8px; }
+    .suggest button { border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid #e2e8f0; }
+    input { flex: 1; padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 999px; font-size: 14px; outline: none; }
+    input:focus { border-color: #2563eb; }
+    button[type=submit] { background: #2563eb; color: #fff; border: 0; border-radius: 999px; padding: 0 18px; cursor: pointer; font-weight: 600; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="chat">
+    <header>
+      <h1>🚗 AutoShop AI Consultant</h1>
+      <p>Tư vấn xe, giá, khuyến mãi, tồn kho — dữ liệu realtime từ showroom</p>
+      <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+        <button type="button" id="newCustomer" title="Bắt đầu 1 khách hàng mới (reset customer_id + lịch sử)"
+          style="background:rgba(255,255,255,.18); color:#fff; border:1px solid rgba(255,255,255,.5); border-radius:999px; padding:4px 12px; font-size:12px; cursor:pointer;">
+          ➕ Khách mới
+        </button>
+        <span id="cid" style="font-size:11px; opacity:.75;"></span>
+      </div>
+    </header>
+    <div id="messages">
+      <div class="msg bot">Xin chào! Mình là tư vấn viên AI của AutoShop. Bạn đang quan tâm mẫu xe nào? 😊</div>
+    </div>
+    <div class="suggest" id="suggest">
+      <button>Toyota Vios giá bao nhiêu?</button>
+      <button>SUV 7 chỗ dưới 1 tỷ còn xe</button>
+      <button>Xe điện VinFast khuyến mãi gì?</button>
+      <button>Tư vấn xe gia đình 600 triệu</button>
+    </div>
+    <form id="form">
+      <input id="input" placeholder="Nhập câu hỏi..." autocomplete="off" />
+      <button type="submit" id="send">Gửi</button>
+    </form>
+  </div>
+
+  <script>
+    const messagesEl = document.getElementById("messages");
+    const form = document.getElementById("form");
+    const input = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const history = [];
+    // Mã khách hàng lưu trên trình duyệt -> server dùng để upsert vào Google Sheet
+    let customerId = localStorage.getItem("customerId");
+    if (!customerId) {
+      customerId = "C" + Date.now() + Math.random().toString(36).slice(2, 8);
+      localStorage.setItem("customerId", customerId);
+    }
+    let conversationId = sessionStorage.getItem("conversationId");
+    if (!conversationId) {
+      conversationId = "T" + Date.now();
+      sessionStorage.setItem("conversationId", conversationId);
+    }
+    document.getElementById("cid").textContent = "khách: " + customerId;
+    // Nút "Khách mới": 1 trình duyệt = 1 customer_id, muốn thêm lead khác phải reset
+    document.getElementById("newCustomer").addEventListener("click", () => {
+      if (!confirm("Bắt đầu khách hàng mới?\nTrang sẽ reset customer_id + lịch sử chat (dữ liệu khách cũ đã lưu ở /customers.html).")) return;
+      localStorage.removeItem("customerId");
+      sessionStorage.removeItem("conversationId");
+      history.length = 0;
+      location.reload();
+    });
+
+    function addMessage(text, cls) {
+      const div = document.createElement("div");
+      div.className = "msg " + cls;
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    async function send(text) {
+      if (!text.trim()) return;
+      document.getElementById("suggest").style.display = "none";
+      addMessage(text, "user");
+      input.value = "";
+      sendBtn.disabled = true;
+      const typing = addMessage("Đang tra cứu dữ liệu...", "bot typing");
+
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, history, customer_id: customerId, conversation_id: conversationId }),
+        });
+        const data = await res.json();
+        typing.remove();
+        if (!res.ok) throw new Error(data.detail?.msg || data.detail || data.error || "Lỗi máy chủ");
+
+        addMessage(data.answer, "bot");
+        if (data.toolCalls?.length) {
+          const t = document.createElement("div");
+          t.className = "tools";
+          t.textContent = "🔧 " + data.toolCalls.map(c => c.tool).join(", ");
+          messagesEl.appendChild(t);
+        }
+        history.push({ role: "user", content: text }, { role: "assistant", content: data.answer });
+      } catch (err) {
+        typing.remove();
+        addMessage("⚠️ " + err.message, "bot");
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+
+    form.addEventListener("submit", (e) => { e.preventDefault(); send(input.value); });
+    document.querySelectorAll("#suggest button").forEach(b => b.addEventListener("click", () => send(b.textContent)));
+  </script>
+</body>
+</html>

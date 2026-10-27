@@ -1,0 +1,15 @@
+{
+  "name": "customer-ai-chatbox",
+  "version": "1.0.0",
+  "description": "Customer AI chatbox: Customer -> AI Agent -> Product Tool -> Database -> Answer",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node --env-file=.env src/server.js",
+    "dev": "node --env-file=.env --watch src/server.js",
+    "test:tools": "node src/test-tools.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

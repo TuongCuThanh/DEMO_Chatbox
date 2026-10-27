@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <title>AutoShop - Khách hàng</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #eef2f7; padding: 24px; }
+    h1 { color: #1e293b; margin-bottom: 4px; }
+    .nav { margin-bottom: 12px; }
+    .nav a { color: #2563eb; text-decoration: none; margin-right: 14px; font-size: 14px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin: 12px 0; }
+    input[type=search] { padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; width: 280px; font-size: 14px; }
+    button { background: #2563eb; color: #fff; border: 0; border-radius: 8px; padding: 8px 16px; cursor: pointer; font-size: 14px; }
+    .count { color: #64748b; font-size: 13px; }
+    table { border-collapse: collapse; background: #fff; width: 100%; box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+    th, td { border: 1px solid #e2e8f0; padding: 8px 10px; font-size: 13px; text-align: left; vertical-align: top; }
+    th { background: #2563eb; color: #fff; position: sticky; top: 0; }
+    tr:nth-child(even) { background: #f8fafc; }
+    .tag { display: inline-block; background: #dcfce7; color: #166534; border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+    .empty { padding: 24px; text-align: center; color: #64748b; background: #fff; }
+    .summary { max-width: 320px; color: #334155; }
+    .muted { color: #94a3b8; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>👥 Khách hàng (leads từ chat AI)</h1>
+  <div class="nav">
+    <a href="/">💬 Trang chat</a>
+    <a href="/admin.html">🛠️ Admin xe</a>
+    <a href="/api/customers">JSON (API)</a>
+  </div>
+  <p class="count">Dữ liệu do <b>Extraction Agent</b> tự trích xuất từ lịch sử chat và lưu vào SQLite (bảng <code>customers</code>).
+     <b>Mỗi trình duyệt = 1 khách hàng</b> — để thêm khách mới, bấm <b>➕ Khách mới</b> ở <a href="/">trang chat</a>.</p>
+  <div class="toolbar">
+    <input type="search" id="q" placeholder="Tìm theo tên, SĐT, xe quan tâm..." />
+    <button id="refresh">🔄 Làm mới</button>
+    <span class="count" id="count"></span>
+  </div>
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th>#</th><th>Khách ID</th><th>Tên</th><th>SĐT</th>
+        <th>Xe quan tâm</th><th>Nhu cầu</th><th>Ngân sách</th>
+        <th>Tóm tắt hội thoại</th><th>Trạng thái</th><th>Lần cuối</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <div id="empty" class="empty" style="display:none">Chưa có khách hàng nào. Hãy chat thử ở trang chat rồi quay lại đây (hoặc bấm Làm mới).</div>
+  <script>
+    let rows = [];
+    const q = document.getElementById("q");
+
+    function render() {
+      const kw = q.value.trim().toLowerCase();
+      const filtered = kw
+        ? rows.filter(r => [r.name, r.phone, r.product_interest, r.customer_need, r.budget, r.conversation_summary]
+            .join(" ").toLowerCase().includes(kw))
+        : rows;
+      const tb = document.querySelector("#tbl tbody");
+      tb.innerHTML = "";
+      document.getElementById("empty").style.display = filtered.length ? "none" : "block";
+      document.getElementById("count").textContent = filtered.length + " khách hàng";
+      filtered.forEach((r, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${i + 1}</td>
+          <td><span class="muted">${r.customer_id}</span></td>
+          <td>${r.name || "<span class='muted'>chưa rõ</span>"}</td>
+          <td>${r.phone || "<span class='muted'>—</span>"}</td>
+          <td>${r.product_interest || "<span class='muted'>—</span>"}</td>
+          <td>${r.customer_need || "<span class='muted'>—</span>"}</td>
+          <td>${r.budget || "<span class='muted'>—</span>"}</td>
+          <td class="summary">${r.conversation_summary || ""}</td>
+          <td><span class="tag">${r.status || "new"}</span></td>
+          <td class="muted">${r.last_interaction_at || ""}</td>`;
+        tb.appendChild(tr);
+      });
+    }
+
+    async function load() {
+      try {
+        rows = await (await fetch("/api/customers")).json();
+        render();
+      } catch (e) {
+        document.getElementById("empty").textContent = "Lỗi tải dữ liệu: " + e.message;
+        document.getElementById("empty").style.display = "block";
+      }
+    }
+
+    q.addEventListener("input", render);
+    document.getElementById("refresh").addEventListener("click", load);
+    load();
+    setInterval(load, 15000); // tự làm mới để thấy lead mới ngay
+  </script>
+</body>
+</html>
